@@ -86,6 +86,7 @@
     .cover-sub { font-family: var(--serif); font-size: clamp(1.3rem, 1.9vw, 1.7rem); font-weight: 300; font-style: italic; line-height: 1.4; color: var(--text-dim); max-width: 500px; }
     .cover-desc { color: var(--text-dim); font-size: 13px; line-height: 1.8; max-width: 460px; }
     .cover-art { position: relative; aspect-ratio: 1; background: #000; border: 1px solid var(--line); overflow: hidden; max-width: 520px; margin-left: auto; width: 100%; }
+    
     .canvas-slot { position: absolute; inset: 0; overflow: hidden; }
     .canvas-slot canvas {
       display: block !important;
@@ -94,6 +95,7 @@
       width: 100% !important; height: 100% !important;
       max-width: 100% !important; max-height: 100% !important;
     }
+    
     .cover-foot { display: grid; grid-template-columns: repeat(3, 1fr); gap: 40px; padding-top: 32px; border-top: 1px solid var(--line); font-family: var(--mono); font-size: 10px; letter-spacing: 0.22em; text-transform: uppercase; color: var(--text-faint); }
     .cover-foot .k { display: block; color: var(--gold-soft); margin-bottom: 8px; }
     .cover-foot .v { color: var(--text-dim); letter-spacing: 0.1em; line-height: 1.7; }
@@ -707,21 +709,6 @@
 <script>
 // ============================================================
 // FRAMED LINE — GENERATIVE GESTURE COMPOSITIONS
-//
-// Same seed → many surfaces:
-//   • Cover, Plate, Frame — same seed
-//   • All 4 surfaces (Print, Scarf, Textile, Wall) — same seed
-//   • Archive — 8 unique seeds
-//
-// Rectangular surfaces tile the square composition to fill.
-//
-// Generative engine (preserved from source):
-//   • 6–14 points placed at random positions inside the frame
-//   • Consecutive points connected by quadratic Bézier curves
-//   • Gradient hue shift along the path
-//   • Varying stroke weight per segment
-//   • Colourful frame at 5% padding
-//   • Small scattered echoes near each vertex
 // ============================================================
 
 const prefix = 'Framed-Line';
@@ -752,13 +739,9 @@ function hueName(h) {
 
 // ============================================================
 // SKETCH FACTORY
-// tile: { cols, rows } — repeat the square composition N times
 // ============================================================
-function makeSketch({ slotId, seedValue, isMaster, maxFrames, tile }) {
+function makeSketch({ slotId, seedValue, isMaster, maxFrames }) {
   const stopAfter = maxFrames || Infinity;
-  const tileCols = (tile && tile.cols) || 1;
-  const tileRows = (tile && tile.rows) || 1;
-
   let canvasW = 0;
   let canvasH = 0;
   let frameCount = 0;
@@ -805,48 +788,35 @@ function makeSketch({ slotId, seedValue, isMaster, maxFrames, tile }) {
         return;
       }
 
-      // Tile composition
-      const tileW = canvasW / tileCols;
-      const tileH = canvasH / tileRows;
-      const tileSize = Math.min(tileW, tileH);
-
-      for (let ty = 0; ty < tileRows; ty++) {
-        for (let tx = 0; tx < tileCols; tx++) {
-          const ox = tx * tileW + (tileW - tileSize) / 2;
-          const oy = ty * tileH + (tileH - tileSize) / 2;
-
-          p.push();
-          p.translate(ox, oy);
-          drawComposition(p, tileSize, seedValue);
-          p.pop();
-        }
-      }
-
+      // Directly draw the composition to fill the entire canvas exactly
+      drawComposition(p, canvasW, canvasH, seedValue);
       frameCount++;
     };
   };
 
-  // ---- Draw the framed-line composition into a square of side `size` ----
-  function drawComposition(p, size, seedValue) {
+  // ---- Draw the framed-line composition to fill the canvas ----
+  function drawComposition(p, w, h, seedValue) {
     const sr = new SeededRandom(seedValue);
-    const cs = size;
-    const framePadding = cs * 0.05;
+    const maxDim = Math.max(w, h);
+    const minDim = Math.min(w, h);
+    const framePadding = minDim * 0.05;
 
     // White background
     p.background(0, 0, 100);
 
     // ---- Frame ----
-    p.strokeWeight(cs * 0.02);
+    p.strokeWeight(maxDim * 0.02);
     p.stroke(sr.rand() * 360, 80, 90);
     p.noFill();
-    p.rect(framePadding / 2, framePadding / 2, cs - framePadding, cs - framePadding);
+    p.rect(framePadding / 2, framePadding / 2, w - framePadding, h - framePadding);
 
     // ---- Points ----
     const totalPoints = sr.int(6, 14);
     const points = [];
     for (let i = 0; i < totalPoints; i++) {
-      const x = sr.range(framePadding, cs - framePadding);
-      const y = sr.range(framePadding, cs - framePadding);
+      // Distribute points within the padded area
+      const x = sr.range(framePadding, w - framePadding);
+      const y = sr.range(framePadding, h - framePadding);
       points.push({ x, y });
     }
 
@@ -864,14 +834,18 @@ function makeSketch({ slotId, seedValue, isMaster, maxFrames, tile }) {
 
       // Varying thickness
       const t = i / (points.length - 1);
-      p.strokeWeight(cs * (0.001 + t * 0.009));
+      p.strokeWeight(maxDim * (0.001 + t * 0.009));
 
       // Quadratic Bézier curve
       p.noFill();
       p.beginShape();
       p.vertex(p1.x, p1.y);
-      const midX = (p1.x + p2.x) / 2 + sr.range(-cs * 0.05, cs * 0.05);
-      const midY = (p1.y + p2.y) / 2 + sr.range(-cs * 0.05, cs * 0.05);
+      
+      // Control point offset based on the smaller dimension to keep curves 
+      // consistent relative to the canvas size
+      const midX = (p1.x + p2.x) / 2 + sr.range(-minDim * 0.05, minDim * 0.05);
+      const midY = (p1.y + p2.y) / 2 + sr.range(-minDim * 0.05, minDim * 0.05);
+      
       p.quadraticVertex(midX, midY, p2.x, p2.y);
       p.endShape();
     }
@@ -880,10 +854,10 @@ function makeSketch({ slotId, seedValue, isMaster, maxFrames, tile }) {
     for (let i = 0; i < points.length; i++) {
       if (sr.rand() < 0.2) {
         p.stroke(sr.rand() * 360, 80, 90, 0.4);
-        p.strokeWeight(cs * 0.002);
+        p.strokeWeight(maxDim * 0.002);
         p.point(
-          points[i].x + sr.range(-cs * 0.02, cs * 0.02),
-          points[i].y + sr.range(-cs * 0.02, cs * 0.02)
+          points[i].x + sr.range(-minDim * 0.02, minDim * 0.02),
+          points[i].y + sr.range(-minDim * 0.02, minDim * 0.02)
         );
       }
     }
@@ -939,10 +913,10 @@ function attachVisibilityObserver(p5Instance, element) {
   obs.observe(element);
 }
 
-function createLiveP5({ slotId, seedValue, isMaster, maxFrames, tile, onCreated }) {
+function createLiveP5({ slotId, seedValue, isMaster, maxFrames, onCreated }) {
   whenSlotReady(slotId, (slot) => {
     slot.querySelectorAll('canvas').forEach(c => c.remove());
-    const inst = new p5(makeSketch({ slotId, seedValue, isMaster, maxFrames, tile }), slot);
+    const inst = new p5(makeSketch({ slotId, seedValue, isMaster, maxFrames }), slot);
     inst._frozen = false;
     attachVisibilityObserver(inst, slot);
     if (onCreated) onCreated(inst);
@@ -958,7 +932,6 @@ function drawPlate() {
     seedValue: seed,
     isMaster: true,
     maxFrames: 2,
-    tile: { cols: 1, rows: 1 },
     onCreated: (inst) => { plateP5 = inst; }
   });
 }
@@ -972,7 +945,6 @@ function drawCover() {
     seedValue: seed,
     isMaster: false,
     maxFrames: 2,
-    tile: { cols: 1, rows: 1 },
     onCreated: (inst) => { coverP5 = inst; }
   });
 }
@@ -986,19 +958,18 @@ function drawFramedPlate() {
     seedValue: seed,
     isMaster: false,
     maxFrames: 2,
-    tile: { cols: 1, rows: 1 },
     onCreated: (inst) => { frameP5 = inst; }
   });
 }
 
 // ============================================================
-// SURFACES — same seed as plate, tiled to fill aspect ratio
+// SURFACES — same seed as plate, scaled to fill aspect ratio
 // ============================================================
 const surfaceDefs = [
-  { id: 'surfacePrint',   wrapId: 'wrap-surfacePrint',   tile: { cols: 1, rows: 1 } },
-  { id: 'surfaceScarf',   wrapId: 'wrap-surfaceScarf',   tile: { cols: 3, rows: 1 } },
-  { id: 'surfaceTextile', wrapId: 'wrap-surfaceTextile', tile: { cols: 2, rows: 2 } },
-  { id: 'surfaceWall',    wrapId: 'wrap-surfaceWall',    tile: { cols: 1, rows: 2 } }
+  { id: 'surfacePrint',   wrapId: 'wrap-surfacePrint' },
+  { id: 'surfaceScarf',   wrapId: 'wrap-surfaceScarf' },
+  { id: 'surfaceTextile', wrapId: 'wrap-surfaceTextile' },
+  { id: 'surfaceWall',    wrapId: 'wrap-surfaceWall' }
 ];
 
 function drawSurfaces() {
@@ -1027,8 +998,7 @@ function drawSurfaces() {
           slotId: slot.id || (slot.id = def.id + '-slot'),
           seedValue: seed,
           isMaster: false,
-          maxFrames: 2,
-          tile: def.tile
+          maxFrames: 2
         }),
         slot
       );
@@ -1103,8 +1073,7 @@ function drawArchive() {
           slotId: 'archive-slot-' + i,
           seedValue: archiveSeeds[i],
           isMaster: false,
-          maxFrames: 2,
-          tile: { cols: 1, rows: 1 }
+          maxFrames: 2
         }),
         slot
       );
